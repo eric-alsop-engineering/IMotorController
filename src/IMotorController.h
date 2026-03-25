@@ -22,6 +22,10 @@
 #define NEUTRAL  0  // Throttle neutral position
 #define STRAIGHT 0  // Steering straight position
 
+// Forward declarations for optional capability interfaces
+class IDriveModeController;
+class IDiagnosticSource;
+
 // ─── Core Motor Controller Interface ──────────────────────────────────────────
 // Every motor controller driver must implement this.
 
