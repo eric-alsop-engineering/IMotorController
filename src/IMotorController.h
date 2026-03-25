@@ -57,6 +57,13 @@ public:
     // Query current stop state
     virtual bool isEStopped() const = 0;
     virtual bool isSafetyStopped() const = 0;
+
+    // Optional capability queries — override in concrete classes that
+    // also implement IDriveModeController or IDiagnosticSource.
+    // Returns nullptr by default (Arduino builds use -fno-rtti so
+    // dynamic_cast is not available).
+    virtual IDriveModeController* asDriveModeController() { return nullptr; }
+    virtual IDiagnosticSource* asDiagnosticSource() { return nullptr; }
 };
 
 // ─── Optional: Drive Mode Switching ───────────────────────────────────────────
