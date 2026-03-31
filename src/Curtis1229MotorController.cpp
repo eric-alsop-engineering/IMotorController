@@ -302,8 +302,11 @@ void Curtis1229MotorController::sendDriveCommands()
     // Differential drive mixing:
     //   Left wheel  = throttle + steeringOffset
     //   Right wheel = throttle - steeringOffset
-    int16_t leftOutput  = appliedThrottle + steeringOffset;
-    int16_t rightOutput = appliedThrottle - steeringOffset;
+    // Use int32_t intermediates to avoid signed int16_t overflow (UB)
+    int32_t leftMix  = (int32_t)appliedThrottle + steeringOffset;
+    int32_t rightMix = (int32_t)appliedThrottle - steeringOffset;
+    int16_t leftOutput  = (int16_t)constrain(leftMix, -32767, 32767);
+    int16_t rightOutput = (int16_t)constrain(rightMix, -32767, 32767);
 
     // Constrain to valid motor range
     leftOutput  = constrainOutput(leftOutput);
