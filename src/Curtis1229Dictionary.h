@@ -60,6 +60,33 @@
     118-User8: Data bytes 6 & 7, Bits 15-0
 */
 
+// ─── NMT Command Specifiers ────────────────────────────────────────────────
+#define NMT_CMD_START_REMOTE_NODE    0x01  // Enter Operational
+#define NMT_CMD_STOP_REMOTE_NODE     0x02  // Enter Stopped
+#define NMT_CMD_ENTER_PRE_OP         0x80  // Enter Pre-Operational
+#define NMT_CMD_RESET_NODE           0x81  // Full reset (equivalent to KSI cycle)
+#define NMT_CMD_RESET_COMMUNICATION  0x82  // CAN comm reset only
+
+// ─── Heartbeat NMT State Values ────────────────────────────────────────────
+#define HB_STATE_BOOTUP              0x00
+#define HB_STATE_STOPPED             0x04
+#define HB_STATE_OPERATIONAL         0x05
+#define HB_STATE_PRE_OPERATIONAL     0x7F
+
+// ─── EMCY Error Categories ─────────────────────────────────────────────────
+#define EMCY_CATEGORY_NO_FAULT       0x0000
+#define EMCY_CATEGORY_GENERIC_1      0x1000  // Status1-5 bitmasks in bytes 3-7
+#define EMCY_CATEGORY_GENERIC_2      0x1001  // Status6-10 bitmasks in bytes 3-7
+#define EMCY_CATEGORY_USER_FAULT     0x6200  // VCL user faults
+
+// ─── SDO COB-ID Bases ──────────────────────────────────────────────────────
+#define CURTIS_SDO_TX_BASE_COBID     0x580  // SDO response from Curtis
+#define CURTIS_SDO_RX_BASE_COBID     0x600  // SDO request to Curtis
+
+// ─── Teensy NMT Master Node ID ─────────────────────────────────────────────
+// Note: Node ID 127 is reserved for Curtis programmer tools — do not use.
+#define TEENSY_NMT_MASTER_NODE_ID    0x10  // Node 16 — avoids conflicts
+
 // ─── Standard Object Dictionary Entries for Curtis 1229 Controller ──────────
 #define CURTIS_TARGET_VELOCITY       0x604000
 #define CURTIS_ACTUAL_VELOCITY       0x606C00

@@ -191,6 +191,21 @@ void Curtis1229Controller::setPdoMsgUserData(uint8_t* dataBuffer, uint8_t userNu
     }
 }
 
+// ─── TPDO1 parsing (called from CAN RX ISR — must be fast) ─────────────────
+
+void Curtis1229Controller::processTPDO1(const uint8_t* data)
+{
+    // Parse 4 little-endian int16_t from 8-byte PDO payload
+    tpdoData.user1 = (int16_t)(data[0] | (data[1] << 8));
+    tpdoData.user2 = (int16_t)(data[2] | (data[3] << 8));
+    tpdoData.user3 = (int16_t)(data[4] | (data[5] << 8));
+    tpdoData.user4 = (int16_t)(data[6] | (data[7] << 8));
+    tpdoData.timestamp = millis();
+    tpdoData.valid = true;
+}
+
+// ─── COB-ID calculation ────────────────────────────────────────────────────
+
 uint16_t Curtis1229Controller::calculateCobId(uint8_t nodeId, uint16_t pdoBaseCobId)
 {
     if (nodeId < 1 || nodeId > 127)

@@ -19,6 +19,17 @@
 #include "Curtis1229Dictionary.h"
 #include <FlexCAN_T4.h>
 
+// ─── TPDO data received from a single Curtis 1229 node ─────────────────────
+struct CurtisTPDOData
+{
+    int16_t user1;       // Bytes 0-1 (little-endian)
+    int16_t user2;       // Bytes 2-3
+    int16_t user3;       // Bytes 4-5
+    int16_t user4;       // Bytes 6-7
+    unsigned long timestamp;  // millis() when last received
+    bool valid;               // true after first successful parse
+};
+
 class Curtis1229Controller
 {
 public:
@@ -41,6 +52,9 @@ public:
     // Accessors
     uint8_t getNodeId() const { return myNodeId; }
     uint16_t getCobId() const { return cobId; }
+    uint16_t getTPDO1CobId() const { return CURTIS_TPDO1_BASE_COBID + myNodeId; }
+    uint16_t getEMCYCobId() const { return CURTIS_EMCY_COBID + myNodeId; }
+    uint16_t getHeartbeatCobId() const { return CURTIS_HEARTBEAT_COBID + myNodeId; }
 
     // Set Node ID and update cobId
     void setNodeID(uint8_t nodeId);
@@ -48,11 +62,17 @@ public:
     // Utility
     static uint16_t calculateCobId(uint8_t nodeId, uint16_t pdoBaseCobId);
 
+    // ── TPDO receive ──
+    // Called from CAN RX ISR — must be fast, no Serial, no blocking
+    void processTPDO1(const uint8_t* data);
+    const volatile CurtisTPDOData& getTPDOData() const { return tpdoData; }
+
 private:
     FlexCAN_T4<CAN3, RX_SIZE_256, TX_SIZE_16>& canBus;
     uint8_t myNodeId;
     uint16_t cobId;
     uint8_t user;
+    volatile CurtisTPDOData tpdoData;
 
     void setPdoMsgUserData(uint8_t* dataBuffer, uint8_t userNum, int16_t data);
     uint16_t determinePdoBaseCobId(uint8_t userNum);
