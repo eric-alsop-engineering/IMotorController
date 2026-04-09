@@ -41,6 +41,21 @@
 // ─── CAN send interval ─────────────────────────────────────────────────────
 #define CURTIS1229_CAN_SEND_INTERVAL_MS     20  // Send PDO commands at 50 Hz
 
+// ─── Heartbeat consumer timeout ────────────────────────────────────────────
+// If no heartbeat received from a Curtis node within this period, flag it as lost.
+// Curtis default heartbeat producer rate is 100ms (object 0x1017).
+#define CURTIS_HEARTBEAT_TIMEOUT_MS  500
+
+// ─── EMCY data structure ───────────────────────────────────────────────────
+struct CurtisEMCYData
+{
+    uint16_t errorCategory;     // 0x0000=no fault, 0x1000/0x1001=generic, 0x6200=user
+    uint8_t  errorRegister;     // Bit 0 = fault active
+    uint8_t  statusBytes[5];    // Manufacturer-specific: status register bitmasks
+    unsigned long timestamp;
+    bool valid;
+};
+
 class Curtis1229MotorController : public IMotorController,
                                    public IDriveModeController,
                                    public IDiagnosticSource
@@ -81,10 +96,19 @@ public:
     int16_t getAppliedThrottle() const;
     int16_t getAppliedSteering() const;
 
+    // ── CAN receive (called from ISR — static because FlexCAN requires it) ──
+    static void canRxCallback(const CAN_message_t& msg);
+
 private:
     // Low-level Curtis controller instances (one per wheel)
     Curtis1229Controller leftWheel;
     Curtis1229Controller rightWheel;
+
+    // Reference to the FlexCAN bus (needed for NMT commands)
+    FlexCAN_T4<CAN3, RX_SIZE_256, TX_SIZE_16>& canBus;
+
+    // Static instance pointer (FlexCAN ISR callback must be static)
+    static Curtis1229MotorController* instance;
 
     // Stop states
     bool eStopActive;
@@ -93,7 +117,7 @@ private:
     // Drive mode (speed mode 1 or 2)
     uint8_t currentDriveMode;
 
-    // Diagnostic state (populated in update() when TPDO reading is implemented)
+    // Diagnostic state (populated from TPDO/EMCY data in processReceivedCAN)
     uint16_t lastErrorCode;
     uint16_t lastStatusFlags;
 
@@ -119,7 +143,30 @@ private:
     // CAN send timing
     unsigned long lastCanSendTime;
 
+    // ── CAN receive state (volatile — written by ISR, read by main loop) ──
+    volatile CurtisEMCYData emcyLeft;
+    volatile CurtisEMCYData emcyRight;
+    volatile unsigned long lastHeartbeatLeftTime;
+    volatile unsigned long lastHeartbeatRightTime;
+    volatile uint8_t curtisNMTStateLeft;
+    volatile uint8_t curtisNMTStateRight;
+
+    // Heartbeat-lost flags (set in main loop from volatile timestamps)
+    bool heartbeatLostLeft;
+    bool heartbeatLostRight;
+
+    // NMT startup tracking
+    bool nmtStartSent;
+
     // ── Internal methods ──
+
+    // CAN receive setup and processing
+    void setupCANReceive();
+    void processReceivedCAN();
+
+    // NMT commands
+    void sendNMTCommand(uint8_t command, uint8_t nodeId);
+    void startupNMT();
 
     // Send current applied values to both Curtis controllers via CAN
     void sendDriveCommands();
