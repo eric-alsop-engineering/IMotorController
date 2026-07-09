@@ -20,7 +20,7 @@
 
 // ─── Constructor ────────────────────────────────────────────────────────────
 
-Curtis1229Controller::Curtis1229Controller(FlexCAN_T4<CAN3, RX_SIZE_256, TX_SIZE_16>& canBus, uint8_t nodeId)
+Curtis1229Controller::Curtis1229Controller(FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16>& canBus, uint8_t nodeId)
     : canBus(canBus)
 {
     if (nodeId < 1 || nodeId > 127)

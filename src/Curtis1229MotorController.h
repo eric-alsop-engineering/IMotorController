@@ -62,7 +62,7 @@ class Curtis1229MotorController : public IMotorController,
 {
 public:
     // Constructor — takes a FlexCAN bus reference so the caller can pass their CAN instance
-    Curtis1229MotorController(FlexCAN_T4<CAN3, RX_SIZE_256, TX_SIZE_16>& canBus);
+    Curtis1229MotorController(FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16>& canBus);
 
     // ── IMotorController interface ──
     void init() override;
@@ -105,7 +105,7 @@ private:
     Curtis1229Controller rightWheel;
 
     // Reference to the FlexCAN bus (needed for NMT commands)
-    FlexCAN_T4<CAN3, RX_SIZE_256, TX_SIZE_16>& canBus;
+    FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16>& canBus;
 
     // Static instance pointer (FlexCAN ISR callback must be static)
     static Curtis1229MotorController* instance;

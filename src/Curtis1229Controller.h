@@ -34,7 +34,7 @@ class Curtis1229Controller
 {
 public:
     // Constructor — takes the FlexCAN bus reference and a node ID
-    Curtis1229Controller(FlexCAN_T4<CAN3, RX_SIZE_256, TX_SIZE_16>& canBus, uint8_t nodeId = CURTIS_DEFAULT_NODE_ID);
+    Curtis1229Controller(FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16>& canBus, uint8_t nodeId = CURTIS_DEFAULT_NODE_ID);
 
     // Send a throttle command to this controller's node
     // modeValue: 0 = Speed Mode 1, non-zero = Speed Mode 2 (sent via User 3, bytes 4-5)
@@ -68,7 +68,7 @@ public:
     const volatile CurtisTPDOData& getTPDOData() const { return tpdoData; }
 
 private:
-    FlexCAN_T4<CAN3, RX_SIZE_256, TX_SIZE_16>& canBus;
+    FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16>& canBus;
     uint8_t myNodeId;
     uint16_t cobId;
     uint8_t user;

@@ -25,7 +25,7 @@
 // Static instance pointer for ISR callback routing
 Curtis1229MotorController* Curtis1229MotorController::instance = nullptr;
 
-Curtis1229MotorController::Curtis1229MotorController(FlexCAN_T4<CAN3, RX_SIZE_256, TX_SIZE_16>& canBus)
+Curtis1229MotorController::Curtis1229MotorController(FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16>& canBus)
     : leftWheel(canBus, CURTIS_LEFT_WHEEL_NODE_ID)
     , rightWheel(canBus, CURTIS_RIGHT_WHEEL_NODE_ID)
     , canBus(canBus)
@@ -494,7 +494,7 @@ void Curtis1229MotorController::setupCANReceive()
     D1PRINTLN("Setting up CAN receive filters...");
 
     // Enable mailbox-based reception with interrupts.
-    // FlexCAN_T4 on Teensy 4.1 CAN3 supports up to 64 mailboxes.
+    // FlexCAN_T4 on Teensy 4.1 CAN1 supports up to 64 mailboxes.
     // The first few are typically used for TX; we configure higher ones for RX.
     canBus.setMaxMB(16);
     canBus.enableFIFO();
