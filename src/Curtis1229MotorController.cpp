@@ -110,9 +110,14 @@ void Curtis1229MotorController::setThrottle(int16_t throttle)
 {
     if (eStopActive)
     {
-        D1PRINTLN("E-Stop Active. Throttle locked to NEUTRAL.");
-        appliedThrottle = NEUTRAL;
+        // Powered e-stop: ramp down to NEUTRAL at the aggressive e-stop deceleration
+        // rate (higher than normal and safety-stop decel) rather than snapping. KSI
+        // stays powered so this is a controlled powered stop, not a coast.
+        D1PERIODICPRINTLN(50, "E-Stop Active. Powered stop, ramping throttle to NEUTRAL.");
         targetThrottle = NEUTRAL;
+        appliedThrottle = adjustToTarget(appliedThrottle, NEUTRAL,
+                                          CURTIS1229_EMERGENCY_STOP_DECELERATION,
+                                          lastThrottleUpdate);
         return;
     }
 
@@ -146,9 +151,12 @@ void Curtis1229MotorController::setSteering(int16_t steering)
 {
     if (eStopActive)
     {
-        D1PERIODICPRINTLN(50, "E-Stop Active. Steering locked to STRAIGHT.");
-        appliedSteering = STRAIGHT;
+        // Powered e-stop: ramp steering to STRAIGHT at the aggressive e-stop decel rate.
+        D1PERIODICPRINTLN(50, "E-Stop Active. Powered stop, ramping steering to STRAIGHT.");
         targetSteering = STRAIGHT;
+        appliedSteering = adjustToTarget(appliedSteering, STRAIGHT,
+                                          CURTIS1229_EMERGENCY_STOP_DECELERATION,
+                                          lastSteeringUpdate);
         return;
     }
 
@@ -172,18 +180,18 @@ void Curtis1229MotorController::setSteering(int16_t steering)
 
 void Curtis1229MotorController::eStop()
 {
+    // Powered e-stop: keep the controllers powered (KSI stays ON) and let throttle and
+    // steering ramp to zero at the aggressive e-stop deceleration rate. The actual ramp
+    // is applied in setThrottle()/setSteering() (which honor eStopActive) and streamed to
+    // the wheels by update()/sendDriveCommands() at the normal 50 Hz cadence — so we do
+    // NOT snap to neutral here (that would be a violent stop now that the Curtis's own
+    // accel/decel is set fast). The tug's physical e-stop button has its own independent
+    // hardware motor cutoff if the firmware ever fails; this path is the controlled stop.
     eStopActive = true;
-    appliedThrottle = NEUTRAL;
-    appliedSteering = STRAIGHT;
     targetThrottle = NEUTRAL;
     targetSteering = STRAIGHT;
 
-    // Immediately send neutral to both wheels
-    int16_t modeValue = (currentDriveMode == CURTIS_SPEED_MODE_2) ? 1 : 0;
-    leftWheel.sendThrottleCommand(CURTIS_NEUTRAL, modeValue);
-    rightWheel.sendThrottleCommand(CURTIS_NEUTRAL, modeValue);
-
-    D1PRINTLN("Curtis1229MotorController: E-STOP ACTIVATED");
+    D1PRINTLN("Curtis1229MotorController: E-STOP ACTIVATED (powered stop, KSI stays on)");
 }
 
 void Curtis1229MotorController::safetyStop()
@@ -312,16 +320,27 @@ void Curtis1229MotorController::sendDriveCommands()
     // Apply steering curve for more natural feel
     int16_t steeringOffset = applyCurve(scaledSteering, steeringCurve);
 
-    // Differential drive mixing:
+    // Differential drive mixing with STEERING PRIORITY:
     //   Left wheel  = throttle + steeringOffset
     //   Right wheel = throttle - steeringOffset
+    // At high throttle the naive mix saturates the outer wheel at maxOutput and the
+    // excess is clipped away, so a hard turn only gets ~half its authority (the outer
+    // wheel is pinned and can't spin faster). That makes the tug slow to change heading
+    // at top speed. Instead, cap the COMMON throttle to whatever headroom the requested
+    // turn leaves, so the full steering differential is always delivered — the tug sheds
+    // a little speed to complete a hard turn rather than plowing straight. steeringOffset
+    // is always within ±maxOutput (steeringScale < 1), so throttleRoom is never negative.
+    int16_t steerMag     = (int16_t)abs((int)steeringOffset);
+    int16_t throttleRoom = (maxOutput > steerMag) ? (int16_t)(maxOutput - steerMag) : (int16_t)0;
+    int16_t effThrottle  = (int16_t)constrain((int)appliedThrottle, -(int)throttleRoom, (int)throttleRoom);
+
     // Use int32_t intermediates to avoid signed int16_t overflow (UB)
-    int32_t leftMix  = (int32_t)appliedThrottle + steeringOffset;
-    int32_t rightMix = (int32_t)appliedThrottle - steeringOffset;
+    int32_t leftMix  = (int32_t)effThrottle + steeringOffset;
+    int32_t rightMix = (int32_t)effThrottle - steeringOffset;
     int16_t leftOutput  = (int16_t)constrain(leftMix, -32767, 32767);
     int16_t rightOutput = (int16_t)constrain(rightMix, -32767, 32767);
 
-    // Constrain to valid motor range
+    // Constrain to valid motor range (belt-and-suspenders; steering priority already fits)
     leftOutput  = constrainOutput(leftOutput);
     rightOutput = constrainOutput(rightOutput);
 
