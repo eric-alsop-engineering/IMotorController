@@ -33,6 +33,8 @@ Curtis1229Controller::Curtis1229Controller(FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE
         this->myNodeId = nodeId;
     }
 
+    this->eStopActive = false;
+
     // For now we use a fixed user value; cobId only calculated once.
     // This can be expanded later to change based on input.
     this->user = CURTIS_DEFAULT_USER;
@@ -63,6 +65,23 @@ void Curtis1229Controller::sendNeutral(int16_t modeValue)
     sendThrottleCommand(CURTIS_NEUTRAL, modeValue);
 }
 
+// ─── CAN e-stop flag (RPDO1 User 1 -> 119-User Fault Estop) ─────────────────
+
+void Curtis1229Controller::setEStopActive(bool active)
+{
+    if (active == eStopActive)
+    {
+        return;
+    }
+    eStopActive = active;
+    if (user == CURTIS_ESTOP_USER_SLOT)
+    {
+        ERRORPRINTLN("E-stop slot collides with the throttle User slot — e-stop flag will be overwritten");
+    }
+    D1PRINT("Curtis CAN e-stop ");
+    D1PRINTLN(active ? "ASSERTED" : "released");
+}
+
 // ─── Generate throttle message (returns CAN_message_t, doesn't send) ────────
 // modeValue: 0 = Speed Mode 1, non-zero = Speed Mode 2 (sent via User 3, bytes 4-5)
 
@@ -84,6 +103,13 @@ CAN_message_t Curtis1229Controller::generateThrottleMessage(int16_t throttle, in
 
     // Set throttle in the configured user slot (bytes 2-3 for User 2)
     setPdoMsgUserData(msg.buf, user, throttle);
+
+    // E-stop flag in User 1: the Curtis I/O map routes it into 119-User Fault Estop
+    // (controlled powered stop at E Stop Decel). 0 = normal, non-zero = stop.
+    if (eStopActive)
+    {
+        setPdoMsgUserData(msg.buf, CURTIS_ESTOP_USER_SLOT, 1);
+    }
 
     // Debug output (throttled to once every 100 ms)
     static unsigned long lastPrintTime = 0;

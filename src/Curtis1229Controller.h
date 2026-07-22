@@ -19,6 +19,10 @@
 #include "Curtis1229Dictionary.h"
 #include <FlexCAN_T4.h>
 
+// RPDO1 User slot carrying the e-stop flag (User 1 is unused by throttle/mode, which live in
+// User 2/3). Must match the slot the Curtis I/O map routes into 119-User Fault Estop.
+#define CURTIS_ESTOP_USER_SLOT 1
+
 // ─── TPDO data received from a single Curtis 1229 node ─────────────────────
 struct CurtisTPDOData
 {
@@ -46,6 +50,14 @@ public:
     // Send neutral (zero throttle) immediately
     void sendNeutral(int16_t modeValue = 0);
 
+    // CAN e-stop (see Firmware/Documentation/Curtis1229/Emergency_Stop_over_CAN.md).
+    // RPDO1 User 1 is mapped on the Curtis (1313 programmer: 0x30D4 UserFaultEStopInput = 111)
+    // into 119-User Fault Estop: non-zero performs a controlled powered stop at the E Stop Decel
+    // rate and raises a User Fault Estop; returning to 0 releases it. While active, every RPDO1
+    // frame this class builds carries a non-zero User 1. Safe to call every loop (change-detected).
+    void setEStopActive(bool active);
+    bool isEStopActive() const { return eStopActive; }
+
     // COB-ID override
     void setCobId(uint16_t customCobId);
 
@@ -72,6 +84,7 @@ private:
     uint8_t myNodeId;
     uint16_t cobId;
     uint8_t user;
+    bool eStopActive;
     volatile CurtisTPDOData tpdoData;
 
     void setPdoMsgUserData(uint8_t* dataBuffer, uint8_t userNum, int16_t data);
