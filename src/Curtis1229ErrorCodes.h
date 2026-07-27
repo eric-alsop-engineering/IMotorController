@@ -19,6 +19,16 @@
 // ─── Curtis 1229 Fault Codes (3100R / decimal) ─────────────────────────────
 // From 1229_Fault_Status_Mapping.xlsx and 53129_1229_OS 1.8_RevA.pdf
 
+// ── Curtis 1228 status-LED blink codes ──────────────────────────────────────
+// The 1228 has no CAN; the wired receiver's Curtis1228BlinkMonitor decodes its status
+// LED ("X flashes, pause, Y flashes" = code X-Y) and encodes it into motorErrorCode as
+// 0xB200 | (X << 4) | Y. The 0xB2 marker byte cannot collide with the 1229 EMCY fault
+// codes below (small integers), so the controller distinguishes them with the marker.
+#define CURTIS1228_BLINK_CODE_MARKER 0xB200
+#define CURTIS1228_IS_BLINK_CODE(code) (((code) & 0xFF00) == CURTIS1228_BLINK_CODE_MARKER)
+#define CURTIS1228_BLINK_DIGIT1(code) (((code) >> 4) & 0x0F)
+#define CURTIS1228_BLINK_DIGIT2(code) ((code) & 0x0F)
+
 #define CURTIS_FAULT_HW_FAILSAFE                1
 #define CURTIS_FAULT_PLD_CLOCK_FAIL              2
 #define CURTIS_FAULT_CALIBRATION_RESET           9

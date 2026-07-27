@@ -191,6 +191,15 @@ void Curtis1229MotorController::eStop()
     targetThrottle = NEUTRAL;
     targetSteering = STRAIGHT;
 
+    // Also raise the Curtis User Fault Estop on both wheels: RPDO1 User 1 goes non-zero,
+    // which the Curtis I/O map (1313: 0x30D4 UserFaultEStopInput = 111) routes into
+    // 119-User Fault Estop — the Curtis performs its own controlled stop at E Stop Decel
+    // and latches a fault until User 1 returns to 0 (releaseStop). Requires the 1313
+    // mapping on BOTH nodes; unmapped controllers simply ignore the flag, so this is
+    // safe to ship ahead of the Curtis configuration.
+    leftWheel.setEStopActive(true);
+    rightWheel.setEStopActive(true);
+
     D1PRINTLN("Curtis1229MotorController: E-STOP ACTIVATED (powered stop, KSI stays on)");
 }
 
@@ -204,6 +213,11 @@ void Curtis1229MotorController::releaseStop()
 {
     eStopActive = false;
     safetyStopActive = false;
+    // Clearing User 1 back to 0 releases the Curtis User Fault Estop over CAN — no KSI
+    // cycle needed (per the 1229 manual; bench-verify. If a unit ever latches the fault,
+    // the fallbacks are an NMT Reset Node or the KSI-off-for-2s cycle from Asana).
+    leftWheel.setEStopActive(false);
+    rightWheel.setEStopActive(false);
     D1PRINTLN("Curtis1229MotorController: Stop Released");
 }
 
