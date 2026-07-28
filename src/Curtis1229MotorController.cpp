@@ -678,12 +678,15 @@ void Curtis1229MotorController::processReceivedCAN()
         statusFlags = (uint16_t)(statusCopy[0] | ((uint16_t)statusCopy[1] << 8));
     }
 
-    // Check for EMCY "all clear" (category 0x0000, error register 0x00)
-    if (emcyLeft.valid && emcyLeft.errorCategory == EMCY_CATEGORY_NO_FAULT && emcyLeft.errorRegister == 0)
+    // EMCY "all clear": Error Register bit 0 is set while ANY fault is active (1229 manual
+    // pg 120), so an EMCY with bit 0 clear means no faults remain — regardless of category.
+    // (The 1229 can report a clear using the fault's own category rather than 0x0000; the old
+    // exact category==0x0000 match let cleared faults latch forever.)
+    if (emcyLeft.valid && !(emcyLeft.errorRegister & 0x01))
     {
         emcyLeft.valid = false;
     }
-    if (emcyRight.valid && emcyRight.errorCategory == EMCY_CATEGORY_NO_FAULT && emcyRight.errorRegister == 0)
+    if (emcyRight.valid && !(emcyRight.errorRegister & 0x01))
     {
         emcyRight.valid = false;
     }
