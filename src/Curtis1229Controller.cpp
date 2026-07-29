@@ -78,6 +78,17 @@ void Curtis1229Controller::sendNmtStart()
     D1PRINTLN("NMT Start Remote Node sent (clears PDO Timeout without KSI cycle)");
 }
 
+void Curtis1229Controller::sendNmtReset()
+{
+    CAN_message_t nmt;
+    nmt.id = 0x000; // NMT
+    nmt.len = 2;
+    nmt.buf[0] = 0x81; // Reset Node
+    nmt.buf[1] = 0x00; // 0 = all nodes
+    canBus.write(nmt);
+    D1PRINTLN("NMT Reset Node sent (soft KSI-cycle equivalent)");
+}
+
 // ─── CAN e-stop flag (RPDO1 User 1 -> 119-User Fault Estop) ─────────────────
 
 void Curtis1229Controller::setEStopActive(bool active)
