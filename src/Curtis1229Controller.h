@@ -50,6 +50,11 @@ public:
     // Send neutral (zero throttle) immediately
     void sendNeutral(int16_t modeValue = 0);
 
+    // Send a CANopen NMT Start Remote Node (broadcast, all nodes). Clears faults whose spec
+    // allows an NMT clear — notably PDO Timeout ("Clear: Cycle KSI or receive CAN NMT
+    // message", 1229 manual pg 132) — without cycling KSI. Harmless when already operational.
+    void sendNmtStart();
+
     // CAN e-stop (see Firmware/Documentation/Curtis1229/Emergency_Stop_over_CAN.md).
     // RPDO1 User 1 is mapped on the Curtis (1313 programmer: 0x30D4 UserFaultEStopInput = 111)
     // into 119-User Fault Estop: non-zero performs a controlled powered stop at the E Stop Decel
