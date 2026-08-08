@@ -41,6 +41,13 @@
 // ─── CAN send interval ─────────────────────────────────────────────────────
 #define CURTIS1229_CAN_SEND_INTERVAL_MS     20  // Send PDO commands at 50 Hz
 
+// ─── E-stop release Curtis reset ───────────────────────────────────────────
+// Bench finding (Nathan, Romeo): after e-stop release the 1229s stay latched — they keep taking
+// RPDO throttle but won't drive until power-cycled. Recover like the wired tug does out of idle:
+// NMT Reset Node (CAN equivalent of a KSI cycle), then NMT Start + neutral this long afterward,
+// once the node's stack has rebooted.
+#define CURTIS1229_NMT_RESTART_DELAY_MS     500
+
 // ─── Heartbeat consumer timeout ────────────────────────────────────────────
 // If no heartbeat received from a Curtis node within this period, flag it as lost.
 // Curtis default heartbeat producer rate is 100ms (object 0x1017).
@@ -157,6 +164,11 @@ private:
 
     // NMT startup tracking
     bool nmtStartSent;
+
+    // E-stop-release reset sequencing: releaseStop() sends NMT Reset Node and sets this to the
+    // millis() deadline for the follow-up NMT Start + neutral; update() fires it and clears to 0.
+    // 0 = no reset pending.
+    unsigned long nmtRestartDueMs;
 
     // ── Internal methods ──
 

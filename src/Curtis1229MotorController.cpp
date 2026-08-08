@@ -55,6 +55,7 @@ Curtis1229MotorController::Curtis1229MotorController(FlexCAN_T4<CAN1, RX_SIZE_25
     , heartbeatLostLeft(false)
     , heartbeatLostRight(false)
     , nmtStartSent(false)
+    , nmtRestartDueMs(0)
 {
     instance = this;
 }
@@ -104,6 +105,18 @@ void Curtis1229MotorController::update()
 
     // Process received CAN data (copies volatile ISR data into diagnostic fields)
     processReceivedCAN();
+
+    // Complete the e-stop-release recovery: once the NMT Reset (sent by releaseStop) has had time
+    // to reboot both nodes, NMT Start them and push a neutral frame to restart the RPDO stream.
+    // Done here (non-blocking) so releaseStop() never stalls the loop waiting on the reboot.
+    if (0 != nmtRestartDueMs && (long)(now - nmtRestartDueMs) >= 0)
+    {
+        sendNMTCommand(NMT_CMD_START_REMOTE_NODE, 0); // broadcast to both wheels
+        leftWheel.sendNeutral();
+        rightWheel.sendNeutral();
+        nmtRestartDueMs = 0;
+        D1PRINTLN("Curtis1229MotorController: post-e-stop NMT Start + neutral sent");
+    }
 }
 
 void Curtis1229MotorController::setThrottle(int16_t throttle)
@@ -213,12 +226,29 @@ void Curtis1229MotorController::releaseStop()
 {
     eStopActive = false;
     safetyStopActive = false;
-    // Clearing User 1 back to 0 releases the Curtis User Fault Estop over CAN — no KSI
-    // cycle needed (per the 1229 manual; bench-verify. If a unit ever latches the fault,
-    // the fallbacks are an NMT Reset Node or the KSI-off-for-2s cycle from Asana).
+    // First clear the User 1 e-stop flag on both wheels (RPDO1 User 1 -> 0).
     leftWheel.setEStopActive(false);
     rightWheel.setEStopActive(false);
-    D1PRINTLN("Curtis1229MotorController: Stop Released");
+
+    // Clearing User 1 alone was NOT enough on the bench (Nathan, Romeo): after release the 1229s
+    // keep receiving RPDO throttle but refuse to drive until they are power-cycled — the User Fault
+    // Estop stays latched. Escalate to the recovery the wired tug uses coming out of idle: NMT Reset
+    // Node now (the CAN equivalent of a KSI cycle), then NMT Start + neutral once the stack has
+    // rebooted (CURTIS1229_NMT_RESTART_DELAY_MS later, fired non-blocking from update()).
+    sendNMTCommand(NMT_CMD_RESET_NODE, 0); // broadcast to both wheels
+    nmtRestartDueMs = millis() + CURTIS1229_NMT_RESTART_DELAY_MS;
+    if (0 == nmtRestartDueMs) nmtRestartDueMs = 1; // keep 0 reserved as the "none pending" sentinel
+
+    // A rebooted node won't re-broadcast a clear for the User Fault Estop we just raised, so drop
+    // our latched diagnostics; a fault that genuinely survives the reset re-latches via its EMCY.
+    noInterrupts();
+    emcyLeft.valid = false;
+    emcyRight.valid = false;
+    interrupts();
+    lastErrorCode = 0;
+    lastStatusFlags = 0;
+
+    D1PRINTLN("Curtis1229MotorController: Stop Released (NMT Reset sent; Start+neutral to follow)");
 }
 
 bool Curtis1229MotorController::isEStopped() const
