@@ -54,6 +54,10 @@ Curtis1229MotorController::Curtis1229MotorController(FlexCAN_T4<CAN1, RX_SIZE_25
     , curtisNMTStateRight(0)
     , heartbeatLostLeft(false)
     , heartbeatLostRight(false)
+    , hbCountLeft(0)
+    , hbCountRight(0)
+    , hbMaxGapLeftMs(0)
+    , hbMaxGapRightMs(0)
     , nmtStartSent(false)
     , nmtRestartDueMs(0)
 {
@@ -624,14 +628,29 @@ void Curtis1229MotorController::canRxCallback(const CAN_message_t& msg)
     // ── Heartbeat messages ──
     if (id == self->leftWheel.getHeartbeatCobId())
     {
+        unsigned long now = millis();
+        // Track the worst inter-heartbeat gap for the periodic stats print (diagnostics).
+        if (self->lastHeartbeatLeftTime > 0)
+        {
+            unsigned long gap = now - self->lastHeartbeatLeftTime;
+            if (gap > self->hbMaxGapLeftMs) self->hbMaxGapLeftMs = (gap > 0xFFFF) ? 0xFFFF : (uint16_t)gap;
+        }
+        self->hbCountLeft++;
         self->curtisNMTStateLeft = msg.buf[0] & 0x7F;
-        self->lastHeartbeatLeftTime = millis();
+        self->lastHeartbeatLeftTime = now;
         return;
     }
     if (id == self->rightWheel.getHeartbeatCobId())
     {
+        unsigned long now = millis();
+        if (self->lastHeartbeatRightTime > 0)
+        {
+            unsigned long gap = now - self->lastHeartbeatRightTime;
+            if (gap > self->hbMaxGapRightMs) self->hbMaxGapRightMs = (gap > 0xFFFF) ? 0xFFFF : (uint16_t)gap;
+        }
+        self->hbCountRight++;
         self->curtisNMTStateRight = msg.buf[0] & 0x7F;
-        self->lastHeartbeatRightTime = millis();
+        self->lastHeartbeatRightTime = now;
         return;
     }
 }
@@ -724,7 +743,51 @@ void Curtis1229MotorController::processReceivedCAN()
     // Add heartbeat-lost as a status flag
     if (heartbeatLostLeft || heartbeatLostRight)
     {
-        statusFlags |= 0x8000; // Bit 15 = heartbeat lost
+        statusFlags |= CURTIS_STATUS_FLAG_HEARTBEAT_LOST;
+    }
+
+    // ── No-comms watchdog ──
+    // Every "lost" check above is gated on having heard the node at least once, so a bus that
+    // is silent from boot (wrong wiring, dead transceiver, heartbeat producer disabled) was
+    // previously invisible. If we've heard NOTHING from either node — no heartbeat, TPDO1, or
+    // EMCY — past the grace period, flag it and say so.
+    bool heardAnything = (lastHeartbeatLeftTime > 0) || (lastHeartbeatRightTime > 0) ||
+                         leftWheel.getTPDOData().valid || rightWheel.getTPDOData().valid ||
+                         emcyLeft.valid || emcyRight.valid;
+    if (!heardAnything && now > CURTIS_NO_COMMS_GRACE_MS)
+    {
+        statusFlags |= CURTIS_STATUS_FLAG_NO_COMMS;
+        static unsigned long lastNoCommsPrint = 0;
+        if (now - lastNoCommsPrint > 5000)
+        {
+            lastNoCommsPrint = now;
+            D1PRINTLN("WARNING: No CAN traffic from either Curtis since boot (heartbeat/TPDO/EMCY all silent)");
+        }
+    }
+
+    // ── Teensy-side TPDO1 staleness (PDO-timeout equivalent) ──
+    // A node whose TPDO1 stream stops (while e.g. its heartbeat continues) was previously
+    // undetected: processTPDO1 stamps a timestamp nobody checked.
+    {
+        bool tpdoStaleLeft = leftWheel.getTPDOData().valid &&
+                             (now - leftWheel.getTPDOData().timestamp > CURTIS_TPDO_TIMEOUT_MS);
+        bool tpdoStaleRight = rightWheel.getTPDOData().valid &&
+                              (now - rightWheel.getTPDOData().timestamp > CURTIS_TPDO_TIMEOUT_MS);
+        if (tpdoStaleLeft || tpdoStaleRight)
+        {
+            statusFlags |= CURTIS_STATUS_FLAG_TPDO_STALE;
+        }
+        static bool prevTpdoStale = false;
+        bool tpdoStale = tpdoStaleLeft || tpdoStaleRight;
+        if (tpdoStale && !prevTpdoStale)
+        {
+            D1PRINT("WARNING: Curtis TPDO1 stream stale (");
+            D1PRINT(tpdoStaleLeft ? "LEFT" : "");
+            D1PRINT((tpdoStaleLeft && tpdoStaleRight) ? "+" : "");
+            D1PRINT(tpdoStaleRight ? "RIGHT" : "");
+            D1PRINTLN(")");
+        }
+        prevTpdoStale = tpdoStale;
     }
 
     lastErrorCode = errorCode;
@@ -735,6 +798,29 @@ void Curtis1229MotorController::processReceivedCAN()
     if (now - lastDiagPrint > 2000)
     {
         lastDiagPrint = now;
+
+        // Heartbeat reception stats (see canRxCallback): count since last print + worst gap.
+        // Expected: ~10-20 HB per 2 s window (100 ms producer rate), max gap well under
+        // CURTIS_HEARTBEAT_TIMEOUT_MS. A max gap near/over 500 ms with a healthy count means
+        // the Curtis itself is gapping (check its 0x1017 Heartbeat Rate); count 0 = silent node.
+        {
+            uint16_t cl, cr, gl, gr;
+            noInterrupts();
+            cl = hbCountLeft;      cr = hbCountRight;
+            gl = hbMaxGapLeftMs;   gr = hbMaxGapRightMs;
+            hbCountLeft = 0;       hbCountRight = 0;
+            hbMaxGapLeftMs = 0;    hbMaxGapRightMs = 0;
+            interrupts();
+            D1PRINT("Curtis HB stats (2s): L n=");
+            D1PRINT(cl);
+            D1PRINT(" maxGap=");
+            D1PRINT(gl);
+            D1PRINT("ms | R n=");
+            D1PRINT(cr);
+            D1PRINT(" maxGap=");
+            D1PRINT(gr);
+            D1PRINTLN("ms");
+        }
         if (lastErrorCode != 0)
         {
             D1PRINT("Curtis FAULT: code ");

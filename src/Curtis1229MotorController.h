@@ -50,8 +50,25 @@
 
 // ─── Heartbeat consumer timeout ────────────────────────────────────────────
 // If no heartbeat received from a Curtis node within this period, flag it as lost.
-// Curtis default heartbeat producer rate is 100ms (object 0x1017).
+// Curtis default heartbeat producer rate is 100ms (object 0x1017, range 16-200 ms).
 #define CURTIS_HEARTBEAT_TIMEOUT_MS  500
+
+// ─── Teensy-side PDO timeout ───────────────────────────────────────────────
+// If a node's TPDO1 stream goes quiet this long after having been seen, flag it stale —
+// the receiver-side equivalent of the Curtis's own PDO Timeout fault.
+#define CURTIS_TPDO_TIMEOUT_MS       500
+
+// ─── No-comms watchdog ─────────────────────────────────────────────────────
+// If NOTHING (no heartbeat, TPDO, or EMCY) has been received from either node this long
+// after init(), warn — a completely silent bus was previously invisible (all the "lost"
+// checks are gated on having heard the node at least once). Wrong bus/wiring, dead
+// transceiver, or Curtis heartbeat producer disabled all land here.
+#define CURTIS_NO_COMMS_GRACE_MS     5000
+
+// ─── statusFlags bits (IDiagnosticSource::getStatusFlags) ──────────────────
+#define CURTIS_STATUS_FLAG_HEARTBEAT_LOST 0x8000 // heard a node's heartbeat, then it stopped
+#define CURTIS_STATUS_FLAG_NO_COMMS       0x4000 // never heard ANYTHING from either node
+#define CURTIS_STATUS_FLAG_TPDO_STALE     0x2000 // a node's TPDO1 stream went quiet
 
 // ─── EMCY data structure ───────────────────────────────────────────────────
 struct CurtisEMCYData
@@ -157,6 +174,14 @@ private:
     volatile unsigned long lastHeartbeatRightTime;
     volatile uint8_t curtisNMTStateLeft;
     volatile uint8_t curtisNMTStateRight;
+
+    // Heartbeat reception stats (written in ISR, printed/reset by processReceivedCAN):
+    // count since last stats print + worst inter-heartbeat gap. Diagnoses whether a
+    // "heartbeat lost" is the wire (Curtis rate/config) or the firmware.
+    volatile uint16_t hbCountLeft;
+    volatile uint16_t hbCountRight;
+    volatile uint16_t hbMaxGapLeftMs;
+    volatile uint16_t hbMaxGapRightMs;
 
     // Heartbeat-lost flags (set in main loop from volatile timestamps)
     bool heartbeatLostLeft;
