@@ -228,11 +228,26 @@ void Curtis1229MotorController::safetyStop()
 
 void Curtis1229MotorController::releaseStop()
 {
+    const bool wasEStopped = eStopActive;
+
     eStopActive = false;
     safetyStopActive = false;
     // First clear the User 1 e-stop flag on both wheels (RPDO1 User 1 -> 0).
     leftWheel.setEStopActive(false);
     rightWheel.setEStopActive(false);
+
+    // Safety stop (quick reversal, comm loss, pairing window) is OURS, not the Curtis's: we only
+    // ramp appliedThrottle/appliedSteering to neutral here and never raise User Fault Estop on the
+    // controllers, so there is nothing on their side to recover from. Do NOT escalate to the NMT
+    // reset below — a reset reboots both 1229s, and a node that reboots while the stick is off
+    // centre comes up into its HPD/sequencing interlock. That read as a hard stop on every
+    // forward<->reverse transition (Nathan, Bravo + Romeo, 2026-08-12). This path is now a plain
+    // flag clear, matching RoboteQMotorController::releaseStop().
+    if (!wasEStopped)
+    {
+        D1PRINTLN("Curtis1229MotorController: Safety Stop released (no NMT reset)");
+        return;
+    }
 
     // Clearing User 1 alone was NOT enough on the bench (Nathan, Romeo): after release the 1229s
     // keep receiving RPDO throttle but refuse to drive until they are power-cycled — the User Fault
@@ -252,7 +267,7 @@ void Curtis1229MotorController::releaseStop()
     lastErrorCode = 0;
     lastStatusFlags = 0;
 
-    D1PRINTLN("Curtis1229MotorController: Stop Released (NMT Reset sent; Start+neutral to follow)");
+    D1PRINTLN("Curtis1229MotorController: E-Stop Released (NMT Reset sent; Start+neutral to follow)");
 }
 
 bool Curtis1229MotorController::isEStopped() const
