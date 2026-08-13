@@ -76,9 +76,15 @@ void RoboteQMotorController::setThrottle(int16_t throttle)
         return;
     }
 
-    if (safetyStopActive || throttleQuicklyReversed(throttle))
+    // Evaluate the reversal detector unconditionally — NOT short-circuited behind safetyStopActive.
+    // It also maintains the prevThrottle history that the next reversal is judged against, and now
+    // that a safety stop persists until the stick re-centres (it used to be cleared by the receiver
+    // on the very next loop) short-circuiting would freeze that history at its pre-stop snapshot
+    // for the whole hold, leaving the detector trigger-happy on release.
+    const bool quickReversal = throttleQuicklyReversed(throttle);
+    if (safetyStopActive || quickReversal)
     {
-        D1PRINTVAR(safetyStopActive);
+        D1PERIODICPRINTVAR(250, safetyStopActive);
         appliedThrottle = adjustToTarget(appliedThrottle, NEUTRAL, ROBOTEQ_SAFETY_STOP_DECELERATION, lastThrottleUpdate);
         uint16_t threshold = 300;
         if (safetyStopActive && isInDeadband(throttle, threshold))
