@@ -48,6 +48,13 @@
 // once the node's stack has rebooted.
 #define CURTIS1229_NMT_RESTART_DELAY_MS     500
 
+// ─── NMT Operational recovery ──────────────────────────────────────────────
+// A Curtis that raises PDO Timeout drops to Pre-Operational and stays there even after the RPDO
+// stream comes back, which is what forced a power cycle after the remote's screensaver. When a
+// node's heartbeat reports anything other than Operational we re-send NMT Start Remote Node, no
+// more often than this. Start (unlike Reset) does not reboot the node, so it cannot trip HPD.
+#define CURTIS1229_NMT_RECOVER_INTERVAL_MS  1000
+
 // ─── Heartbeat consumer timeout ────────────────────────────────────────────
 // If no heartbeat received from a Curtis node within this period, flag it as lost.
 // Curtis default heartbeat producer rate is 100ms (object 0x1017, range 16-200 ms).
@@ -194,6 +201,10 @@ private:
     // millis() deadline for the follow-up NMT Start + neutral; update() fires it and clears to 0.
     // 0 = no reset pending.
     unsigned long nmtRestartDueMs;
+
+    // Rate limit for the NMT Start we send when a node's heartbeat reports it is no longer
+    // Operational (see CURTIS1229_NMT_RECOVER_INTERVAL_MS).
+    unsigned long lastNmtRecoverMs;
 
     // ── Internal methods ──
 

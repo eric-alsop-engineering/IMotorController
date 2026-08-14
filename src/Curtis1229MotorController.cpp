@@ -60,6 +60,7 @@ Curtis1229MotorController::Curtis1229MotorController(FlexCAN_T4<CAN1, RX_SIZE_25
     , hbMaxGapRightMs(0)
     , nmtStartSent(false)
     , nmtRestartDueMs(0)
+    , lastNmtRecoverMs(0)
 {
     instance = this;
 }
@@ -707,16 +708,31 @@ void Curtis1229MotorController::processReceivedCAN()
         heartbeatLostRight = false;
     }
 
-    // ── Detect NMT state changes (Curtis dropped out of Operational) ──
-    if (lastHeartbeatLeftTime > 0 && curtisNMTStateLeft != HB_STATE_OPERATIONAL && curtisNMTStateLeft != HB_STATE_BOOTUP)
+    // ── Recover a node that dropped out of Operational ──
+    // A Curtis that raises PDO Timeout falls back to Pre-Operational and stops acting on RPDO1,
+    // and it stays there even once the RPDO stream returns — that is why Nathan needed a power
+    // cycle after the remote's screensaver dropped the tug into standby. NMT Start Remote Node
+    // puts it back into Operational and resumes PDO processing WITHOUT rebooting the node, so
+    // unlike NMT Reset it cannot come up into the HPD/sequencing interlock. We used to only print
+    // a warning here and leave it latched.
+    //
+    // Skipped while an e-stop-release reset is in flight: those nodes are mid-reboot and will
+    // legitimately report bootup/pre-op until the sequenced Start in update() fires.
+    const bool leftNotOperational =
+        (lastHeartbeatLeftTime > 0 && curtisNMTStateLeft != HB_STATE_OPERATIONAL && curtisNMTStateLeft != HB_STATE_BOOTUP);
+    const bool rightNotOperational =
+        (lastHeartbeatRightTime > 0 && curtisNMTStateRight != HB_STATE_OPERATIONAL && curtisNMTStateRight != HB_STATE_BOOTUP);
+
+    if (0 == nmtRestartDueMs && (leftNotOperational || rightNotOperational) &&
+        (now - lastNmtRecoverMs) >= CURTIS1229_NMT_RECOVER_INTERVAL_MS)
     {
-        D1PRINT("WARNING: Left Curtis NMT state = 0x");
-        D1PRINTLN(curtisNMTStateLeft, HEX);
-    }
-    if (lastHeartbeatRightTime > 0 && curtisNMTStateRight != HB_STATE_OPERATIONAL && curtisNMTStateRight != HB_STATE_BOOTUP)
-    {
-        D1PRINT("WARNING: Right Curtis NMT state = 0x");
-        D1PRINTLN(curtisNMTStateRight, HEX);
+        lastNmtRecoverMs = now;
+        D1PRINT("Curtis dropped out of Operational (left 0x");
+        D1PRINT(curtisNMTStateLeft, HEX);
+        D1PRINT(", right 0x");
+        D1PRINT(curtisNMTStateRight, HEX);
+        D1PRINTLN(") - sending NMT Start to recover");
+        sendNMTCommand(NMT_CMD_START_REMOTE_NODE, 0); // broadcast to both wheels
     }
 
     // ── Process EMCY data into diagnostic fields ──
