@@ -46,8 +46,8 @@ Curtis1229MotorController::Curtis1229MotorController(FlexCAN_T4<CAN1, RX_SIZE_25
     , steeringCurve(CURTIS1229_DEFAULT_STEERING_CURVE)
     , steeringScale(CURTIS1229_DEFAULT_STEERING_SCALE)
     , lastCanSendTime(0)
-    , emcyLeft{}
-    , emcyRight{}
+    , leftFaults(CURTIS_LEFT_WHEEL_NODE_ID)
+    , rightFaults(CURTIS_RIGHT_WHEEL_NODE_ID)
     , lastHeartbeatLeftTime(0)
     , lastHeartbeatRightTime(0)
     , curtisNMTStateLeft(0)
@@ -267,10 +267,8 @@ void Curtis1229MotorController::releaseStop()
 
     // A rebooted node won't re-broadcast a clear for the User Fault Estop we just raised, so drop
     // our latched diagnostics; a fault that genuinely survives the reset re-latches via its EMCY.
-    noInterrupts();
-    emcyLeft.valid = false;
-    emcyRight.valid = false;
-    interrupts();
+    leftFaults.clear();
+    rightFaults.clear();
     lastErrorCode = 0;
     lastStatusFlags = 0;
 
@@ -628,22 +626,14 @@ void Curtis1229MotorController::canRxCallback(const CAN_message_t& msg)
     }
 
     // ── Emergency messages ──
-    if (id == self->leftWheel.getEMCYCobId())
+    if (self->leftFaults.matches(id))
     {
-        self->emcyLeft.errorCategory = (uint16_t)(msg.buf[0] | (msg.buf[1] << 8));
-        self->emcyLeft.errorRegister = msg.buf[2];
-        for (int i = 0; i < 5; i++) self->emcyLeft.statusBytes[i] = msg.buf[3 + i];
-        self->emcyLeft.timestamp = millis();
-        self->emcyLeft.valid = true;
+        self->leftFaults.captureFromISR(msg);
         return;
     }
-    if (id == self->rightWheel.getEMCYCobId())
+    if (self->rightFaults.matches(id))
     {
-        self->emcyRight.errorCategory = (uint16_t)(msg.buf[0] | (msg.buf[1] << 8));
-        self->emcyRight.errorRegister = msg.buf[2];
-        for (int i = 0; i < 5; i++) self->emcyRight.statusBytes[i] = msg.buf[3 + i];
-        self->emcyRight.timestamp = millis();
-        self->emcyRight.valid = true;
+        self->rightFaults.captureFromISR(msg);
         return;
     }
 
@@ -736,45 +726,18 @@ void Curtis1229MotorController::processReceivedCAN()
     }
 
     // ── Process EMCY data into diagnostic fields ──
-    // Decode individual Curtis fault codes from EMCY status bitmask bytes.
-    // Left controller has priority; fall through to right if left has no fault.
-    uint16_t errorCode = 0;
-    uint16_t statusFlags = 0;
+    // Decode is shared with the wired receiver (Curtis1229FaultDecoder); only the two-node
+    // combination rule lives here. Left controller has priority; fall through to right if
+    // left has no fault.
+    leftFaults.update();
+    rightFaults.update();
 
-    if (emcyLeft.valid && (emcyLeft.errorRegister & 0x01))
+    uint16_t errorCode = leftFaults.getErrorCode();
+    uint16_t statusFlags = leftFaults.getStatusFlags();
+    if (0 == errorCode)
     {
-        uint8_t statusCopy[5];
-        noInterrupts();
-        for (int i = 0; i < 5; i++) statusCopy[i] = emcyLeft.statusBytes[i];
-        uint16_t cat = emcyLeft.errorCategory;
-        interrupts();
-
-        errorCode = curtis1229DecodeFaultFromEMCY(cat, statusCopy);
-        statusFlags = (uint16_t)(statusCopy[0] | ((uint16_t)statusCopy[1] << 8));
-    }
-    if (errorCode == 0 && emcyRight.valid && (emcyRight.errorRegister & 0x01))
-    {
-        uint8_t statusCopy[5];
-        noInterrupts();
-        for (int i = 0; i < 5; i++) statusCopy[i] = emcyRight.statusBytes[i];
-        uint16_t cat = emcyRight.errorCategory;
-        interrupts();
-
-        errorCode = curtis1229DecodeFaultFromEMCY(cat, statusCopy);
-        statusFlags = (uint16_t)(statusCopy[0] | ((uint16_t)statusCopy[1] << 8));
-    }
-
-    // EMCY "all clear": Error Register bit 0 is set while ANY fault is active (1229 manual
-    // pg 120), so an EMCY with bit 0 clear means no faults remain — regardless of category.
-    // (The 1229 can report a clear using the fault's own category rather than 0x0000; the old
-    // exact category==0x0000 match let cleared faults latch forever.)
-    if (emcyLeft.valid && !(emcyLeft.errorRegister & 0x01))
-    {
-        emcyLeft.valid = false;
-    }
-    if (emcyRight.valid && !(emcyRight.errorRegister & 0x01))
-    {
-        emcyRight.valid = false;
+        errorCode = rightFaults.getErrorCode();
+        statusFlags = rightFaults.getStatusFlags();
     }
 
     // Add heartbeat-lost as a status flag
@@ -790,7 +753,7 @@ void Curtis1229MotorController::processReceivedCAN()
     // EMCY — past the grace period, flag it and say so.
     bool heardAnything = (lastHeartbeatLeftTime > 0) || (lastHeartbeatRightTime > 0) ||
                          leftWheel.getTPDOData().valid || rightWheel.getTPDOData().valid ||
-                         emcyLeft.valid || emcyRight.valid;
+                         leftFaults.hasEverReceived() || rightFaults.hasEverReceived();
     if (!heardAnything && now > CURTIS_NO_COMMS_GRACE_MS)
     {
         statusFlags |= CURTIS_STATUS_FLAG_NO_COMMS;

@@ -24,6 +24,7 @@
 #include "IMotorController.h"
 #include "Curtis1229Controller.h"
 #include "Curtis1229Dictionary.h"
+#include "Curtis1229FaultDecoder.h"
 #include <FlexCAN_T4.h>
 
 // ─── Acceleration/deceleration rates (units per millisecond) ────────────────
@@ -76,16 +77,6 @@
 #define CURTIS_STATUS_FLAG_HEARTBEAT_LOST 0x8000 // heard a node's heartbeat, then it stopped
 #define CURTIS_STATUS_FLAG_NO_COMMS       0x4000 // never heard ANYTHING from either node
 #define CURTIS_STATUS_FLAG_TPDO_STALE     0x2000 // a node's TPDO1 stream went quiet
-
-// ─── EMCY data structure ───────────────────────────────────────────────────
-struct CurtisEMCYData
-{
-    uint16_t errorCategory;     // 0x0000=no fault, 0x1000/0x1001=generic, 0x6200=user
-    uint8_t  errorRegister;     // Bit 0 = fault active
-    uint8_t  statusBytes[5];    // Manufacturer-specific: status register bitmasks
-    unsigned long timestamp;
-    bool valid;
-};
 
 class Curtis1229MotorController : public IMotorController,
                                    public IDriveModeController,
@@ -185,9 +176,13 @@ private:
     // CAN send timing
     unsigned long lastCanSendTime;
 
+    // ── Fault state: one shared decoder per node (see Curtis1229FaultDecoder.h) ──
+    // These replace a local copy of the EMCY capture/decode/latch logic that had drifted
+    // out of step with the wired receiver's copy of the same thing.
+    Curtis1229FaultDecoder leftFaults;
+    Curtis1229FaultDecoder rightFaults;
+
     // ── CAN receive state (volatile — written by ISR, read by main loop) ──
-    volatile CurtisEMCYData emcyLeft;
-    volatile CurtisEMCYData emcyRight;
     volatile unsigned long lastHeartbeatLeftTime;
     volatile unsigned long lastHeartbeatRightTime;
     volatile uint8_t curtisNMTStateLeft;
