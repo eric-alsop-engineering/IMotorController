@@ -116,6 +116,17 @@ public:
     uint16_t getErrorCode() const override;
     uint16_t getStatusFlags() const override;
 
+    // ── Optional-capability queries (Arduino builds use -fno-rtti, so no dynamic_cast) ──
+    // WirelessReceiver detects drive-mode and diagnostic support by calling these once at
+    // construction. They MUST be overridden here: the base class returns nullptr, so without
+    // them the receiver silently decided this controller had no diagnostics and hard-zeroed
+    // motorErrorCode forever. The EMCY decode below ran correctly the whole time and nobody
+    // ever read it, which is exactly why the 1229 fault codes never reached the screen on the
+    // wireless tugs while the wired Bravo (which bypasses this interface and talks to
+    // CurtisFaultMonitor directly) worked fine on identical hardware.
+    IDriveModeController* asDriveModeController() override { return this; }
+    IDiagnosticSource* asDiagnosticSource() override { return this; }
+
     // ── Tuning parameters (ported from VG CurtisMotorController) ──
     void setMaxOutput(int16_t maxOutput);
     void setSteeringCurve(float curve);
